@@ -469,77 +469,82 @@
     card.appendChild(row3);
   }
 
-  function renderHistory(records, { skipFirst = true } = {}) {
-    const tbody = document.getElementById("history-tbody");
-    tbody.innerHTML = "";
 
-    let startIndex = 0;
-    if (skipFirst && records.length > 0) {
-      startIndex = 1; // 最新はメインに表示したので履歴からは除外
-    }
+// 以前: function renderHistory(records, { skipFirst = true } = {}) {
+function renderHistory(records, { skipFirst = false } = {}) {
+  const tbody = document.getElementById("history-tbody");
+  tbody.innerHTML = "";
 
-    if (records.length <= startIndex) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="6">履歴はありません</td>`;
-      tbody.appendChild(tr);
-      return;
-    }
-
-    for (let i = startIndex; i < Math.min(records.length, 100); i++) {
-      const rec = records[i];
-      const tr = document.createElement("tr");
-      tr.setAttribute("data-idx", String(i)); // 検索で参照
-      // 列順：#, エリア名-座標, 2Dコード, 名前, 指示日, カメラ名
-      tr.innerHTML = `
-        <td>${i + 1}</td>
-        <td>${escapeHtml(rec[0])}</td>
-        <td>${escapeHtml(rec[1])}</td>
-        <td>${escapeHtml(rec[2])}</td>
-        <td>${escapeHtml(rec[3])}</td>
-        <td>${escapeHtml(rec[4])}</td>
-      `;
-      tbody.appendChild(tr);
-    }
+  let startIndex = 0;
+  if (skipFirst && records.length > 0) {
+    startIndex = 1; // 最新をスキップする場合
   }
+
+  if (records.length <= startIndex) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="6">履歴はありません</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (let i = startIndex; i < Math.min(records.length, 100); i++) {
+    const rec = records[i];
+    const tr = document.createElement("tr");
+    tr.setAttribute("data-idx", String(i)); // 検索で参照
+    // 列順：#, エリア名-座標, 2Dコード, 名前, 指示日, カメラ名
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${escapeHtml(rec[0])}</td>
+      <td>${escapeHtml(rec[1])}</td>
+      <td>${escapeHtml(rec[2])}</td>
+      <td>${escapeHtml(rec[3])}</td>
+      <td>${escapeHtml(rec[4])}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 
   // ======== 検索 ========
 
-  function setupSearch(records) {
-    const input = document.getElementById("search-input");
-    const btn = document.getElementById("search-btn");
 
-    function doSearch() {
-      const term = (input.value || "").trim();
-      if (!term) return;
+function setupSearch(records) {
+  const input = document.getElementById("search-input");
+  const btn = document.getElementById("search-btn");
 
-      // 対象：records[1..] の 2Dコード([1]) と 名前([2])
-      let foundIndex = -1;
-      for (let i = 1; i < Math.min(records.length, 100); i++) {
-        const rec = records[i];
-        const code2d = String(rec[1] ?? "");
-        const name = String(rec[2] ?? "");
-        if (code2d.includes(term) || name.includes(term)) {
-          foundIndex = i;
-          break;
-        }
-      }
+  function doSearch() {
+    const term = (input.value || "").trim();
+    if (!term) return;
 
-      if (foundIndex >= 0) {
-        const row = document.querySelector(`tr[data-idx="${foundIndex}"]`);
-        if (row) {
-          row.scrollIntoView({ behavior: "smooth", block: "center" });
-          applyHighlight(row);
-        }
-      } else {
-        showModal("該当するデータが見つかりませんでした。");
+    let foundIndex = -1;
+    // 以前: for (let i = 1; i < Math.min(records.length, 100); i++) {
+    for (let i = 0; i < Math.min(records.length, 100); i++) {
+      const rec = records[i];
+      const code2d = String(rec[1] ?? "");
+      const name = String(rec[2] ?? "");
+      if (code2d.includes(term) || name.includes(term)) {
+        foundIndex = i;
+        break;
       }
     }
 
-    btn.addEventListener("click", doSearch);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") doSearch();
-    });
+    if (foundIndex >= 0) {
+      const row = document.querySelector(`tr[data-idx="${foundIndex}"]`);
+      if (row) {
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        applyHighlight(row);
+      }
+    } else {
+      showModal("該当するデータが見つかりませんでした。");
+    }
   }
+
+  btn.addEventListener("click", doSearch);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doSearch();
+  });
+}
+
 
   // ======== メイン処理 ========
 
@@ -589,7 +594,7 @@
 
     // 履歴（最新はメインに表示したのでスキップ）
     if (historyLoading) historyLoading.parentElement?.remove();
-    renderHistory(records, { skipFirst: true });
+    renderHistory(records, { skipFirst: false });
 
     // 検索セットアップ
     setupSearch(records);
@@ -606,4 +611,5 @@
 </script>
 </body>
 </html>
+
 
