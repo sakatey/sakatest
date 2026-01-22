@@ -135,59 +135,76 @@
   }
 
   // ★ 最新も履歴に含める：skipFirst のデフォルトを false に変更
-  function renderHistory(records, { skipFirst = false } = {}) {
-    const tbody = document.getElementById("history-tbody");
-    tbody.innerHTML = "";
-    let startIndex = 0;
-    if (skipFirst && records.length > 0) startIndex = 1;
 
-    if (records.length <= startIndex) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="6">履歴はありません</td>`;
-      tbody.appendChild(tr);
-      return;
-    }
+function renderHistory(records, { skipFirst = false } = {}) {
+  const tbody = document.getElementById("history-tbody");
+  tbody.innerHTML = "";
 
-    for (let i = startIndex; i < Math.min(records.length, 100); i++) {
-      const rec = records[i];
-      const tr = document.createElement("tr");
-      tr.setAttribute("data-idx", String(i));
-      tr.innerHTML = `
-        <td>${i + 1}</td>
-        <td>${escapeHtml(rec[0])}</td>
-        <td>${escapeHtml(rec[1])}</td>
-        <td>${escapeHtml(rec[2])}</td>
-        <td>${escapeHtml(rec[3])}</td>
-        <td>${escapeHtml(rec[4])}</td>
-      `;
-      tbody.appendChild(tr);
-    }
+  let startIndex = 0;                   // ★ 0から
+  if (skipFirst && records.length > 0) {
+    startIndex = 1;                     // スキップ指定のときだけ1から
   }
+
+  if (records.length <= startIndex) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="6">履歴はありません</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (let i = startIndex; i < Math.min(records.length, 100); i++) {
+    const rec = records[i];
+    const tr = document.createElement("tr");
+    tr.setAttribute("data-idx", String(i)); // ★ 配列インデックスそのまま
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${escapeHtml(rec[0])}</td>
+      <td>${escapeHtml(rec[1])}</td>
+      <td>${escapeHtml(rec[2])}</td>
+      <td>${escapeHtml(rec[3])}</td>
+      <td>${escapeHtml(rec[4])}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 
   // ★ 検索も index 0（最新）から対象に
-  function setupSearch(records) {
-    const input = document.getElementById("search-input");
-    const btn = document.getElementById("search-btn");
-    function doSearch() {
-      const term = (input.value || "").trim();
-      if (!term) return;
-      let foundIndex = -1;
-      for (let i = 0; i < Math.min(records.length, 100); i++) {
-        const rec = records[i];
-        const code2d = String(rec[1] ?? "");
-        const name = String(rec[2] ?? "");
-        if (code2d.includes(term) || name.includes(term)) { foundIndex = i; break; }
-      }
-      if (foundIndex >= 0) {
-        const row = document.querySelector(`tr[data-idx="${foundIndex}"]`);
-        if (row) { row.scrollIntoView({ behavior: "smooth", block: "center" }); applyHighlight(row); }
-      } else {
-        showModal("該当するデータが見つかりませんでした。");
+
+function setupSearch(records) {
+  const input = document.getElementById("search-input");
+  const btn = document.getElementById("search-btn");
+
+  function doSearch() {
+    const term = (input.value || "").trim().toLowerCase(); // ★ 小文字化
+    if (!term) return;
+
+    let foundIndex = -1;
+    for (let i = 0; i < Math.min(records.length, 100); i++) { // ★ 0から
+      const rec = records[i];
+      const code2d = String(rec[1] ?? "").toLowerCase().trim();
+      const name   = String(rec[2] ?? "").toLowerCase().trim();
+      if (code2d.includes(term) || name.includes(term)) {
+        foundIndex = i;
+        break;
       }
     }
-    btn.addEventListener("click", doSearch);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+
+    if (foundIndex >= 0) {
+      const row = document.querySelector(`tr[data-idx="${foundIndex}"]`);
+      if (row) {
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        applyHighlight(row);
+      }
+    } else {
+      showModal("該当するデータが見つかりませんでした。");
+    }
   }
+
+  btn.addEventListener("click", doSearch);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+}
+
 
   async function init() {
     const mainLoading = document.getElementById("main-loading");
@@ -246,3 +263,4 @@
 
   init();
 </script>
+
