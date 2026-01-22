@@ -102,7 +102,7 @@
     flex-wrap: wrap;
   }
   .searchbar input[type="text"] {
-    flex: 1 1 280px;
+    flex: 1 1 220px;
     padding: 10px 12px;
     font-size: 16px;
     border: 1px solid var(--color-border);
@@ -110,8 +110,8 @@
     outline: none;
   }
   .searchbar button {
-    padding: 10px 16px;
-    font-size: 15px;
+    padding: 10px 14px;
+    font-size: 14px;
     border: none;
     border-radius: 8px;
     color: #fff;
@@ -252,6 +252,8 @@
     <div class="searchbar">
       <input id="search-input" type="text" placeholder="2Dコード または 名前 を入力" />
       <button id="search-btn">検索</button>
+      <!-- ★ 追加：履歴クリアボタン -->
+      <button id="clear-btn" style="background:#9e9e9e;">履歴をクリア</button>
       <div class="search-help">※ 履歴表から <strong>2Dコード（2列目）</strong> と <strong>名前（3列目）</strong> を対象に部分一致検索します。</div>
     </div>
     <div class="table-wrap">
@@ -273,11 +275,11 @@
     </div>
   </div>
 
-  <!-- Not Found モーダル -->
+  <!-- Not Found / 情報 モーダル -->
   <div id="modal-backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal">
-      <h4 id="modal-title">Not Found</h4>
-      <p id="modal-message">該当するデータが見つかりませんでした。</p>
+      <h4 id="modal-title">情報</h4>
+      <p id="modal-message">メッセージ</p>
       <button id="modal-ok">OK</button>
     </div>
   </div>
@@ -286,6 +288,9 @@
   // ======== 設定 ========
   const API_URL = "https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message";
   const LOCAL_STORAGE_KEY = "awsCsvHistoryLines"; // ブラウザ保存用
+
+  // グローバル：現在のレコード配列（表示・検索・クリアで使い回す）
+  let recordsGlobal = [];
 
   // ======== ユーティリティ ========
 
@@ -319,11 +324,6 @@
 
   /** APIの応答を、CSV行（文字列配列）に正規化 */
   function normalizeToLines(data) {
-    // 想定される形：
-    //  1) { text: "csv1\ncsv2\n..." }
-    //  2) ["csv1","csv2", ...]
-    //  3) { items: ["csv1", ...] } / { records: [...] } / { messages: [...] }
-    //  4) "csv1\ncsv2\n..."
     let lines = [];
 
     if (Array.isArray(data)) {
@@ -386,16 +386,14 @@
 
   /** ハイライト適用 */
   function applyHighlight(rowEl) {
-    // 一旦他のハイライト解除
     document.querySelectorAll(".highlight").forEach(el => el.classList.remove("highlight"));
-    // 付与
     rowEl.classList.add("highlight");
-    // 3秒ほどでうっすら戻る演出
     setTimeout(() => rowEl.classList.remove("highlight"), 3000);
   }
 
-  /** モーダル表示/非表示 */
-  function showModal(message = "該当するデータが見つかりませんでした。") {
+  /** モーダル（情報/エラー兼用） */
+  function showModal(message = "メッセージ", title = "情報") {
+    document.getElementById("modal-title").innerText = title;
     document.getElementById("modal-message").innerText = message;
     document.getElementById("modal-backdrop").style.display = "flex";
   }
@@ -424,7 +422,6 @@
       tbody.appendChild(tr);
     } else {
       const tr = document.createElement("tr");
-      // 列順：エリア名-座標, 2Dコード, 名前, 指示日, カメラ名
       tr.innerHTML = `
         <td>${escapeHtml(latestRecord[0])}</td>
         <td>${escapeHtml(latestRecord[1])}</td>
@@ -443,9 +440,6 @@
       return;
     }
     // 3段表示：
-    // 1段目：カメラ名, エリア名-座標
-    // 2段目：名前, 2Dコード
-    // 3段目：指示日
     const row1 = document.createElement("div");
     row1.className = "row";
     row1.innerHTML = `
@@ -471,7 +465,7 @@
     card.appendChild(row3);
   }
 
-  // ★ 最新も履歴に含める：skipFirst のデフォルトを false に
+  // 履歴（最新も含める）
   function renderHistory(records, { skipFirst = false } = {}) {
     const tbody = document.getElementById("history-tbody");
     tbody.innerHTML = "";
@@ -492,7 +486,6 @@
       const rec = records[i];
       const tr = document.createElement("tr");
       tr.setAttribute("data-idx", String(i)); // 検索で参照（配列indexをそのまま付与）
-      // 列順：#, エリア名-座標, 2Dコード, 名前, 指示日, カメラ名
       tr.innerHTML = `
         <td>${i + 1}</td>
         <td>${escapeHtml(rec[0])}</td>
@@ -533,13 +526,38 @@
           applyHighlight(row);
         }
       } else {
-        showModal("該当するデータが見つかりませんでした。");
+        showModal("該当するデータが見つかりませんでした。", "Not Found");
       }
     }
 
     btn.addEventListener("click", doSearch);
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") doSearch();
+    });
+  }
+
+  // ======== 履歴クリア ========
+
+  function setupClearHistory() {
+    const btn = document.getElementById("clear-btn");
+    btn.addEventListener("click", () => {
+      const ok = window.confirm("履歴をクリアします。最新の1件のみ残します。よろしいですか？");
+      if (!ok) return;
+
+      // 最新（recordsGlobal[0]）を残して、それ以外を削除
+      if (recordsGlobal.length > 0) {
+        recordsGlobal = [ recordsGlobal[0] ];
+        saveHistoryLines([ recordsGlobal[0] ]); // 次回読み込み用に最新1件のみ保存
+      } else {
+        recordsGlobal = [];
+        saveHistoryLines([]); // 念のため
+      }
+
+      // 表示を更新
+      renderHistory(recordsGlobal, { skipFirst: false });
+
+      // 情報モーダル
+      showModal("履歴をクリアしました。", "情報");
     });
   }
 
@@ -585,22 +603,29 @@
       if (!useLines.length) {
         if (mainLoading) mainLoading.outerHTML = `<td colspan="5" class="error">エラー：${escapeHtml(String(err))}</td>`;
         if (historyLoading) historyLoading.outerHTML = `<td colspan="6">履歴はありません</td>`;
+        // 検索/クリアボタンの最低限のセットアップ
+        setupSearch([]);
+        setupClearHistory();
         return;
       }
     }
 
     const records = toRecords(useLines);
+    recordsGlobal = records; // ★ グローバルに保持
 
     // 最新
     if (mainLoading) mainLoading.parentElement?.remove();
-    renderMain(records[0]);
+    renderMain(recordsGlobal[0]);
 
     // 履歴（★ 最新も履歴に表示）
     if (historyLoading) historyLoading.parentElement?.remove();
-    renderHistory(records, { skipFirst: false });
+    renderHistory(recordsGlobal, { skipFirst: false });
 
     // 検索セットアップ（★ 最新含む）
-    setupSearch(records);
+    setupSearch(recordsGlobal);
+
+    // 履歴クリアボタン
+    setupClearHistory();
   }
 
   // モーダルOK
