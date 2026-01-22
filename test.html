@@ -1,43 +1,533 @@
 
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>AWS Message Display Test</title>
-
+<meta charset="UTF-8" />
+<title>AWS Message Display</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
+  :root{
+    --main-font: "Segoe UI", "Hiragino Kaku Gothic ProN", "Meiryo", system-ui, -apple-system, sans-serif;
+    --color-text: #222;
+    --color-muted: #666;
+    --color-accent: #1976d2;
+    --color-border: #e5e7eb;
+    --color-row-alt: #fafafa;
+    --color-highlight: #fff2a8;
+    --color-error: #d32f2f;
+  }
+
+  html { scroll-behavior: smooth; }
   body {
-    font-family: sans-serif;
-    padding: 20px;
+    font-family: var(--main-font);
+    color: var(--color-text);
+    margin: 0;
+    padding: 24px;
+    background: #fff;
+    line-height: 1.6;
   }
+
   h2 {
-    font-size: 30px;
-    margin-bottom: 20px;
+    font-size: 28px;
+    margin: 0 0 16px;
+    font-weight: 700;
   }
-  #msg {
-    font-size: 24px;
-    color: #333;
+  .subtitle {
+    margin: 0 0 24px;
+    color: var(--color-muted);
+    font-size: 14px;
+  }
+
+  .section {
+    margin: 20px 0 36px;
+  }
+
+  /* メインの表（大きめ） */
+  .main-card {
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    background: #fff;
+  }
+  .main-title {
+    font-size: 20px;
+    margin: 0 0 10px;
+    color: var(--color-accent);
+  }
+
+  .table-wrap {
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: #fff;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 880px; /* 横スクロール保険 */
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    background: #f7f7f7;
+    z-index: 1;
+  }
+  th, td {
+    border-bottom: 1px solid var(--color-border);
+    padding: 12px 14px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  tbody tr:nth-child(even) td {
+    background: var(--color-row-alt);
+  }
+
+  /* フォントサイズ：メインを大きく、履歴はやや大きめ */
+  .table-main {
+    font-size: 22px; /* 大きめ */
+  }
+  .table-history {
+    font-size: 18px; /* やや大きめ */
+  }
+
+  /* 検索UI */
+  .searchbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin: 12px 0 10px;
+    flex-wrap: wrap;
+  }
+  .searchbar input[type="text"] {
+    flex: 1 1 280px;
+    padding: 10px 12px;
+    font-size: 16px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    outline: none;
+  }
+  .searchbar button {
+    padding: 10px 16px;
+    font-size: 15px;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    background: var(--color-accent);
+    cursor: pointer;
+  }
+  .searchbar button:active { transform: translateY(1px); }
+  .search-help {
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+
+  /* ハイライト演出 */
+  .highlight {
+    animation: highlightFlash 2s ease;
+    background: var(--color-highlight) !important;
+  }
+  @keyframes highlightFlash {
+    0% { background: var(--color-highlight); }
+    100% { background: var(--color-row-alt); }
+  }
+
+  /* モーダル */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 9999;
+  }
+  .modal {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px;
+    max-width: 360px;
+    width: calc(100% - 40px);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+  }
+  .modal h4 {
+    margin: 0 0 8px;
+    font-size: 18px;
+  }
+  .modal p {
+    margin: 0 0 14px;
+    color: var(--color-muted);
+  }
+  .modal button {
+    display: inline-block;
+    padding: 10px 16px;
+    font-size: 14px;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    background: var(--color-accent);
+    cursor: pointer;
+  }
+
+  /* エラー表示 */
+  .error {
+    color: var(--color-error);
+    font-weight: 600;
   }
 </style>
-
 </head>
 <body>
 
-<h2>ヒラオキ ⇔ ミエテル</h2>
-<p id="msg">読み込み中...</p>
+  <h2>ヒラオキ ⇔ ミエテル</h2>
+  <div class="subtitle">AWS APIから取得したCSVを表で表示（最新 + 履歴100件、検索付き）</div>
+
+  <!-- 最新データ（メイン表示） -->
+  <div class="section main-card">
+    <h3 class="main-title">最新のデータ</h3>
+    <div class="table-wrap">
+      <table class="table-main" aria-label="最新データ">
+        <thead>
+          <tr>
+            <th>カメラ名</th>
+            <th>エリア名-座標</th>
+            <th>2Dコード</th>
+            <th>名前</th>
+            <th>指示日</th>
+          </tr>
+        </thead>
+        <tbody id="main-tbody">
+          <tr><td colspan="5" id="main-loading">読み込み中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 履歴（検索付き） -->
+  <div class="section">
+    <h3>履歴（最大100件）</h3>
+    <div class="searchbar">
+      <input id="search-input" type="text" placeholder="2Dコード または 名前 を入力" />
+      <button id="search-btn">検索</button>
+      <div class="search-help">※ 履歴表から <strong>2Dコード（3列目）</strong> と <strong>名前（4列目）</strong> を対象に前方/部分一致検索します。</div>
+    </div>
+    <div class="table-wrap">
+      <table class="table-history" aria-label="履歴データ">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>カメラ名</th>
+            <th>エリア名-座標</th>
+            <th>2Dコード</th>
+            <th>名前</th>
+            <th>指示日</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody">
+          <tr><td colspan="6" id="history-loading">読み込み中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Not Found モーダル -->
+  <div id="modal-backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <h4 id="modal-title">Not Found</h4>
+      <p id="modal-message">該当するデータが見つかりませんでした。</p>
+      <button id="modal-ok">OK</button>
+    </div>
+  </div>
 
 <script>
-const url = "https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message";
+  // ======== 設定 ========
+  const API_URL = "https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message";
+  const LOCAL_STORAGE_KEY = "awsCsvHistoryLines"; // ブラウザ保存用
 
-fetch(url)
-  .then(res => res.json())
-  .then(data => {
-    document.getElementById("msg").innerText = data.text;
-  })
-  .catch(err => {
-    document.getElementById("msg").innerText = "エラー: " + err;
+  // ======== ユーティリティ ========
+
+  /** 行（CSV1行）を、ダブルクオート対応で確実に分割して配列にします */
+  function parseCsvLine(line) {
+    const result = [];
+    let cur = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          // 連続する"" はエスケープされたダブルクオート
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(cur.trim());
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    result.push(cur.trim());
+    return result;
+  }
+
+  /** APIの応答を、CSV行（文字列配列）に正規化 */
+  function normalizeToLines(data) {
+    // 想定される形：
+    //  1) { text: "csv1\ncsv2\n..." }
+    //  2) ["csv1","csv2", ...]
+    //  3) { items: ["csv1", ...] }
+    //  4) { records: ["csv1", ...] }
+    //  ※ { text: "csv1" } のように1行しかない場合もあり
+    let lines = [];
+
+    if (Array.isArray(data)) {
+      lines = data.filter(Boolean);
+    } else if (data && typeof data === "object") {
+      if (typeof data.text === "string") {
+        lines = data.text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      } else if (Array.isArray(data.items)) {
+        lines = data.items.filter(Boolean);
+      } else if (Array.isArray(data.records)) {
+        lines = data.records.filter(Boolean);
+      } else if (Array.isArray(data.messages)) {
+        lines = data.messages.filter(Boolean);
+      }
+    } else if (typeof data === "string") {
+      lines = data.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    }
+
+    return lines;
+  }
+
+  /** 5列に整形（不足は空文字で補完、過剰は末尾を結合） */
+  function ensureFiveColumns(cols) {
+    if (cols.length < 5) {
+      return [...cols, ...Array(5 - cols.length).fill("")];
+    }
+    if (cols.length > 5) {
+      // 6列目以降は最後の列に結合しておく
+      const mergedTail = cols.slice(4).join(" ");
+      return [cols[0], cols[1], cols[2], cols[3], mergedTail];
+    }
+    return cols;
+  }
+
+  /** 行配列（CSV文字列配列）→ レコード配列（[c0,c1,c2,c3,c4]） */
+  function toRecords(lines) {
+    return lines.map(l => ensureFiveColumns(parseCsvLine(l)));
+  }
+
+  /** localStorage に最大100件で保存 */
+  function saveHistoryLines(lines) {
+    const max = 100;
+    const trimmed = lines.slice(0, max);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(trimmed));
+  }
+
+  /** localStorage から取得 */
+  function loadHistoryLines() {
+    try {
+      const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** ハイライト適用 */
+  function applyHighlight(rowEl) {
+    // 一旦他のハイライト解除
+    document.querySelectorAll(".highlight").forEach(el => el.classList.remove("highlight"));
+    // 付与
+    rowEl.classList.add("highlight");
+    // 3秒ほどでうっすら戻る演出（明示的に除去したい場合は以下解除）
+    setTimeout(() => rowEl.classList.remove("highlight"), 3000);
+  }
+
+  /** モーダル表示/非表示 */
+  function showModal(message = "該当するデータが見つかりませんでした。") {
+    document.getElementById("modal-message").innerText = message;
+    document.getElementById("modal-backdrop").style.display = "flex";
+  }
+  function hideModal() {
+    document.getElementById("modal-backdrop").style.display = "none";
+  }
+
+  // ======== 描画 ========
+
+  function renderMain(latestRecord) {
+    const tbody = document.getElementById("main-tbody");
+    tbody.innerHTML = "";
+    if (!latestRecord) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="5" class="error">データがありません</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(latestRecord[0])}</td>
+      <td>${escapeHtml(latestRecord[1])}</td>
+      <td>${escapeHtml(latestRecord[2])}</td>
+      <td>${escapeHtml(latestRecord[3])}</td>
+      <td>${escapeHtml(latestRecord[4])}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  function renderHistory(records, { skipFirst = true } = {}) {
+    const tbody = document.getElementById("history-tbody");
+    tbody.innerHTML = "";
+
+    let startIndex = 0;
+    if (skipFirst && records.length > 0) {
+      startIndex = 1; // 最新はメインに表示したので履歴からは除外
+    }
+
+    if (records.length <= startIndex) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="6">履歴はありません</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    for (let i = startIndex; i < Math.min(records.length, 100); i++) {
+      const rec = records[i];
+      const tr = document.createElement("tr");
+      tr.setAttribute("data-idx", String(i)); // 検索で参照
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td>${escapeHtml(rec[0])}</td>
+        <td>${escapeHtml(rec[1])}</td>
+        <td>${escapeHtml(rec[2])}</td>
+        <td>${escapeHtml(rec[3])}</td>
+        <td>${escapeHtml(rec[4])}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  // ======== 検索 ========
+
+  function setupSearch(records) {
+    const input = document.getElementById("search-input");
+    const btn = document.getElementById("search-btn");
+
+    function doSearch() {
+      const term = (input.value || "").trim();
+      if (!term) return;
+
+      // 履歴テーブルは records[1..] を描画しているので、検索もそこを対象に
+      let foundIndex = -1;
+      for (let i = 1; i < Math.min(records.length, 100); i++) {
+        const rec = records[i];
+        const code2d = String(rec[2] ?? "");
+        const name = String(rec[3] ?? "");
+        if (code2d.includes(term) || name.includes(term)) {
+          foundIndex = i;
+          break;
+        }
+      }
+
+      if (foundIndex >= 0) {
+        // data-idx に一致する行へスクロール & ハイライト
+        const row = document.querySelector(`tr[data-idx="${foundIndex}"]`);
+        if (row) {
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
+          applyHighlight(row);
+        }
+      } else {
+        showModal("該当するデータが見つかりませんでした。");
+      }
+    }
+
+    btn.addEventListener("click", doSearch);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doSearch();
+    });
+  }
+
+  // ======== メイン処理 ========
+
+  async function init() {
+    const mainLoading = document.getElementById("main-loading");
+    const historyLoading = document.getElementById("history-loading");
+    let fetchedLines = [];
+    let useLines = [];
+
+    try {
+      const res = await fetch(API_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      fetchedLines = normalizeToLines(data);
+
+      if (fetchedLines.length === 0) {
+        // サーバから空ならローカルのみ
+        useLines = loadHistoryLines();
+      } else if (fetchedLines.length === 1) {
+        // 1行だけ：ローカル履歴に積み上げ
+        const current = fetchedLines[0];
+        const stored = loadHistoryLines();
+        if (stored[0] !== current) {
+          // 先頭に追加（重複排除簡易対応）
+          const deduped = [current, ...stored.filter(l => l !== current)];
+          useLines = deduped.slice(0, 100);
+        } else {
+          useLines = stored.length ? stored : [current];
+        }
+        saveHistoryLines(useLines);
+      } else {
+        // 複数行（サーバが履歴を返してくれた前提）
+        // 先頭を最新として採用。最大100件に圧縮して保存。
+        useLines = fetchedLines.slice(0, 100);
+        saveHistoryLines(useLines);
+      }
+    } catch (err) {
+      console.error(err);
+      // 通信失敗時はローカルから復旧
+      useLines = loadHistoryLines();
+      if (!useLines.length) {
+        // 何もない場合はエラー表示
+        if (mainLoading) mainLoading.outerHTML = `<td colspan="5" class="error">エラー：${escapeHtml(String(err))}</td>`;
+        if (historyLoading) historyLoading.outerHTML = `<td colspan="6">履歴はありません</td>`;
+        return;
+      }
+    }
+
+    const records = toRecords(useLines);
+
+    // 最新
+    if (mainLoading) mainLoading.parentElement?.remove();
+    renderMain(records[0]);
+
+    // 履歴（最新はメインに表示したのでスキップ）
+    if (historyLoading) historyLoading.parentElement?.remove();
+    renderHistory(records, { skipFirst: true });
+
+    // 検索セットアップ
+    setupSearch(records);
+  }
+
+  // モーダルOK
+  document.getElementById("modal-ok").addEventListener("click", hideModal);
+  document.getElementById("modal-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "modal-backdrop") hideModal();
   });
-</script>
 
+  // 起動
+  init();
+</script>
 </body>
 </html>
