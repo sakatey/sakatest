@@ -29,7 +29,6 @@
 
   h2 { font-size: 28px; margin: 0 0 16px; font-weight: 700; }
   .subtitle { margin: 0 0 24px; color: var(--color-muted); font-size: 14px; }
-
   .section { margin: 20px 0 36px; }
 
   /* カード風枠 */
@@ -54,7 +53,7 @@
     border-bottom: 1px solid var(--color-border);
     padding: 12px 14px;
     text-align: left;
-    white-space: nowrap; /* PCは横スクロール想定 */
+    white-space: nowrap; /* PC向けは横スクロール想定 */
   }
   tbody tr:nth-child(even) td { background: var(--color-row-alt); }
 
@@ -127,7 +126,7 @@
 <body>
 
   <h2>ヒラオキ ⇔ ミエテル</h2>
-  <div class="subtitle">AWS APIから取得したCSVを表で表示（最新はスマホで3段表示／履歴は1行表示＋検索／最新も履歴に含める）</div>
+  <div class="subtitle">AWS APIのCSVを表で表示（列順：カメラ名, エリア名-XY, 2Dコード, 名前, 指示日／履歴クリアはリロード後も維持）</div>
 
   <!-- 最新データ -->
   <div class="section main-card">
@@ -141,9 +140,9 @@
       <table class="table-main" aria-label="最新データ（表）">
         <thead>
           <tr>
-            <!-- 列順：エリア名-座標, 2Dコード, 名前, 指示日, カメラ名 -->
+            <!-- 列順：カメラ名, エリア名-XY, 2Dコード, 名前, 指示日 -->
             <th>カメラ名</th>
-            <th>エリア名-座標</th>
+            <th>エリア名-XY</th>
             <th>2Dコード</th>
             <th>名前</th>
             <th>指示日</th>
@@ -163,7 +162,7 @@
       <input id="search-input" type="text" placeholder="2Dコード または 名前 を入力" />
       <button id="search-btn">検索</button>
       <button id="clear-btn">履歴をクリア</button>
-      <div class="search-help">※ 履歴表から <strong>2Dコード（2列目）</strong> と <strong>名前（3列目）</strong> を対象に部分一致検索します。</div>
+      <div class="search-help">※ 検索対象：<strong>2Dコード（3列目）</strong> と <strong>名前（4列目）</strong>（部分一致）</div>
     </div>
     <div class="table-wrap">
       <table class="table-history" aria-label="履歴データ">
@@ -171,7 +170,7 @@
           <tr>
             <th>#</th>
             <th>カメラ名</th>
-            <th>エリア名-座標</th>
+            <th>エリア名-XY</th>
             <th>2Dコード</th>
             <th>名前</th>
             <th>指示日</th>
@@ -196,14 +195,15 @@
 <script>
   // ======== 設定 ========
   const API_URL = "https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message";
-  const LOCAL_STORAGE_KEY = "awsCsvHistoryLines";
+  const LOCAL_STORAGE_KEY = "awsCsvHistoryLines";            // CSV文字列の配列
+  const CLEAR_ANCHOR_CANON_KEY = "awsCsvHistoryClearAnchorCanon"; // 正規化アンカー（永続）
 
-  // 画面全体で共有するレコード配列（配列の配列：[[c0..c4], ...]）
+  // 列順（配列の意味）：[0]=カメラ名, [1]=エリア名-XY, [2]=2Dコード, [3]=名前, [4]=指示日
   let recordsGlobal = [];
 
   // ======== CSVユーティリティ ========
 
-  /** CSV 1行を厳密に分割（ダブルクオート対応） */
+  // CSV 1行を厳密に分割（ダブルクオート対応）
   function parseCsvLine(line) {
     const s = String(line ?? "");
     const result = [];
@@ -223,42 +223,43 @@
     return result;
   }
 
-  /** 5列に整形（不足は空で補完／超過は5列目に結合） */
-  function ensureFiveColumns(cols) {
-    const arr = (cols || []).map(v => String(v ?? ""));
-    if (arr.length < 5) return [...arr, ...Array(5 - arr.length).fill("")];
-    if (arr.length > 5) return [arr[0], arr[1], arr[2], arr[3], arr.slice(4).join(" ")];
-    return arr;
+  // 5列に整形（不足は空／超過は5列目へ結合）
+  function ensureFive(cols) {
+    const a = (cols || []).map(v => String(v ?? ""));
+    if (a.length < 5) return [...a, ...Array(5 - a.length).fill("")];
+    if (a.length > 5) return [a[0], a[1], a[2], a[3], a.slice(4).join(" ")];
+    return a;
   }
 
-  /** CSVフィールドのエスケープ */
+  // 正規化（アンカー照合用）：CSV文字列 → パース → 5列化 → 各セルtrim → JSON文字列
+  function canonicalize(line) {
+    const arr = ensureFive(parseCsvLine(String(line))).map(x => String(x ?? "").trim());
+    return JSON.stringify(arr);
+  }
+
+  // CSVエスケープ
   function csvEscape(field) {
     const s = String(field ?? "");
-    if (/[",\n\r]/.test(s) || /^\s|\s$/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-    return s;
+    return (/[",\n\r]/.test(s) || /^\s|\s$/.test(s)) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
-  /** レコード配列 → CSV 1行 */
+  // レコード配列 → CSV1行
   function toCsvLine(rec) {
-    return ensureFiveColumns(rec).map(csvEscape).join(",");
+    return ensureFive(rec).map(csvEscape).join(",");
   }
 
-  /** APIやlocalStorageから得た行配列（文字列 or 配列）→ レコード配列 */
+  // 行配列（文字列/配列混在可）→ レコード配列
   function toRecords(lines) {
-    return (lines || []).map(l => {
-      if (Array.isArray(l)) return ensureFiveColumns(l);
-      return ensureFiveColumns(parseCsvLine(String(l)));
-    });
+    return (lines || []).map(l => Array.isArray(l) ? ensureFive(l) : ensureFive(parseCsvLine(String(l))));
   }
 
-  /** localStorage に「CSV文字列」として最大100件保存（配列が来てもCSV化） */
+  // ======== localStorage ========
+
   function saveHistoryLines(linesOrRecs) {
     const max = 100;
     const out = (linesOrRecs || []).map(item => Array.isArray(item) ? toCsvLine(item) : String(item));
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(out.slice(0, max)));
   }
-
-  /** localStorage から取得（配列が混入していてもCSV文字列に正規化して即時移行） */
   function loadHistoryLines() {
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -266,7 +267,6 @@
       const arr = JSON.parse(raw);
       if (!Array.isArray(arr)) return [];
       const out = arr.map(item => Array.isArray(item) ? toCsvLine(item) : String(item));
-      // 不正形があれば移行保存
       if (JSON.stringify(arr) !== JSON.stringify(out)) {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(out.slice(0, 100)));
       }
@@ -274,7 +274,17 @@
     } catch { return []; }
   }
 
-  // ======== 共通UIユーティリティ ========
+  function saveClearAnchorCanon(line) {
+    try { localStorage.setItem(CLEAR_ANCHOR_CANON_KEY, canonicalize(line)); } catch {}
+  }
+  function loadClearAnchorCanon() {
+    try { return localStorage.getItem(CLEAR_ANCHOR_CANON_KEY) || ""; } catch { return ""; }
+  }
+  function clearClearAnchorCanon() {
+    try { localStorage.removeItem(CLEAR_ANCHOR_CANON_KEY); } catch {}
+  }
+
+  // ======== UIユーティリティ ========
 
   function escapeHtml(s) {
     return String(s ?? "")
@@ -297,86 +307,81 @@
 
   // ======== 描画 ========
 
-  function renderMain(latestRecord) {
-    // 表（PC/タブレット）
+  function renderMain(latest) {
     const tbody = document.getElementById("main-tbody");
     tbody.innerHTML = "";
-    if (!latestRecord) {
+    if (!latest) {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td colspan="5" class="error">データがありません</td>`;
       tbody.appendChild(tr);
     } else {
       const tr = document.createElement("tr");
-      // 列順：カメラ名,エリア名-座標, 2Dコード, 名前, 指示日
+      // 列順：カメラ名, エリア名-XY, 2Dコード, 名前, 指示日
       tr.innerHTML = `
-        <td>${escapeHtml(latestRecord[0])}</td>
-        <td>${escapeHtml(latestRecord[1])}</td>
-        <td>${escapeHtml(latestRecord[2])}</td>
-        <td>${escapeHtml(latestRecord[3])}</td>
-        <td>${escapeHtml(latestRecord[4])}</td>
+        <td>${escapeHtml(latest[0])}</td>
+        <td>${escapeHtml(latest[1])}</td>
+        <td>${escapeHtml(latest[2])}</td>
+        <td>${escapeHtml(latest[3])}</td>
+        <td>${escapeHtml(latest[4])}</td>
       `;
       tbody.appendChild(tr);
     }
 
-    // スマホ用カード
+    // スマホ用カード（3段）
     const card = document.getElementById("latest-card");
     card.innerHTML = "";
-    if (!latestRecord) {
+    if (!latest) {
       card.innerHTML = `<div class="error">データがありません</div>`;
       return;
     }
     const row1 = document.createElement("div");
     row1.className = "row";
     row1.innerHTML = `
-      <span class="pair"><span class="label">カメラ名</span><strong>${escapeHtml(latestRecord[0])}</strong></span>
-      <span class="pair"><span class="label">エリア名-座標</span><strong>${escapeHtml(latestRecord[1])}</strong></span>
+      <span class="pair"><span class="label">カメラ名</span><strong>${escapeHtml(latest[0])}</strong></span>
+      <span class="pair"><span class="label">エリア名-XY</span><strong>${escapeHtml(latest[1])}</strong></span>
     `;
     const row2 = document.createElement("div");
     row2.className = "row";
     row2.innerHTML = `
-      <span class="pair"><span class="label">名前</span><strong>${escapeHtml(latestRecord[3])}</strong></span>
-      <span class="pair"><span class="label">2Dコード</span><strong>${escapeHtml(latestRecord[2])}</strong></span>
+      <span class="pair"><span class="label">名前</span><strong>${escapeHtml(latest[3])}</strong></span>
+      <span class="pair"><span class="label">2Dコード</span><strong>${escapeHtml(latest[2])}</strong></span>
     `;
     const row3 = document.createElement("div");
     row3.className = "row";
     row3.innerHTML = `
-      <span class="pair"><span class="label">指示日</span><strong>${escapeHtml(latestRecord[4])}</strong></span>
+      <span class="pair"><span class="label">指示日</span><strong>${escapeHtml(latest[4])}</strong></span>
     `;
     card.appendChild(row1); card.appendChild(row2); card.appendChild(row3);
   }
 
-  function renderHistory(records, { skipFirst = false } = {}) {
+  function renderHistory(records) {
     const tbody = document.getElementById("history-tbody");
     tbody.innerHTML = "";
 
-    let startIndex = 0;
-    if (skipFirst && records.length > 0) startIndex = 1;
-
-    if (records.length <= startIndex) {
+    if (!records.length) {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td colspan="6">履歴はありません</td>`;
       tbody.appendChild(tr);
       return;
     }
 
-    for (let i = startIndex; i < Math.min(records.length, 100); i++) {
-      const rec = records[i];
+    for (let i = 0; i < Math.min(records.length, 100); i++) {
+      const r = records[i];
       const tr = document.createElement("tr");
-      tr.setAttribute("data-idx", String(i)); // 元配列indexをそのまま
+      tr.setAttribute("data-idx", String(i));
       tr.innerHTML = `
         <td>${i + 1}</td>
-        <td>${escapeHtml(rec[0])}</td>
-        <td>${escapeHtml(rec[1])}</td>
-        <td>${escapeHtml(rec[2])}</td>
-        <td>${escapeHtml(rec[3])}</td>
-        <td>${escapeHtml(rec[4])}</td>
+        <td>${escapeHtml(r[0])}</td>
+        <td>${escapeHtml(r[1])}</td>
+        <td>${escapeHtml(r[2])}</td>
+        <td>${escapeHtml(r[3])}</td>
+        <td>${escapeHtml(r[4])}</td>
       `;
       tbody.appendChild(tr);
     }
   }
 
-  // ======== 検索 ========
-
+  // ======== 検索（2Dコード=idx2, 名前=idx3） ========
   function setupSearch(records) {
     const input = document.getElementById("search-input");
     const btn = document.getElementById("search-btn");
@@ -388,8 +393,8 @@
       let foundIndex = -1;
       for (let i = 0; i < Math.min(records.length, 100); i++) {
         const rec = records[i];
-        const code2d = String(rec[1] ?? "").toLowerCase().trim();
-        const name   = String(rec[2] ?? "").toLowerCase().trim();
+        const code2d = String(rec[2] ?? "").toLowerCase().trim();
+        const name   = String(rec[3] ?? "").toLowerCase().trim();
         if (code2d.includes(term) || name.includes(term)) { foundIndex = i; break; }
       }
 
@@ -405,30 +410,30 @@
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   }
 
-  // ======== 履歴クリア ========
-
+  // ======== 履歴クリア（永続：正規化アンカーを保存） ========
   function setupClearHistory() {
     const btn = document.getElementById("clear-btn");
     btn.addEventListener("click", () => {
+      if (!recordsGlobal.length) { showModal("履歴はありません。", "情報"); return; }
       const ok = window.confirm("履歴をクリアします。最新の1件のみ残します。よろしいですか？");
       if (!ok) return;
 
-      if (recordsGlobal.length > 0) {
-        recordsGlobal = [ recordsGlobal[0] ];
-        saveHistoryLines(recordsGlobal.map(toCsvLine)); // ★ CSV文字列で保存
-      } else {
-        recordsGlobal = [];
-        saveHistoryLines([]);
-      }
+      // 最新行を正規化し、アンカーとして永続保存（クオートや空白差異に強い）
+      const latestCsv = toCsvLine(recordsGlobal[0]);
+      saveClearAnchorCanon(latestCsv);
 
-      renderHistory(recordsGlobal, { skipFirst: false });
+      // 即時表示を最新のみへ
+      recordsGlobal = [ recordsGlobal[0] ];
+      renderHistory(recordsGlobal);
+
+      // オフライン整合のため localStorage も最新のみへ更新
+      saveHistoryLines([ latestCsv ]);
+
       showModal("履歴をクリアしました。", "情報");
     });
   }
 
-  // ======== データ取得＆初期化 ========
-
-  /** APIレスポンスを「行（文字列）」配列に正規化 */
+  // ======== APIレスポンス正規化 ========
   function normalizeToLines(data) {
     let lines = [];
     if (Array.isArray(data)) {
@@ -444,63 +449,66 @@
     return lines;
   }
 
+  // ======== 初期化 ========
   async function init() {
     const mainLoading = document.getElementById("main-loading");
     const historyLoading = document.getElementById("history-loading");
 
     let fetchedLines = [];
-    let useLines = [];
-
     try {
       const res = await fetch(API_URL, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      fetchedLines = normalizeToLines(data);
-
-      if (fetchedLines.length === 0) {
-        useLines = loadHistoryLines();
-      } else if (fetchedLines.length === 1) {
-        const current = String(fetchedLines[0]);
-        const stored = loadHistoryLines(); // 常にCSV文字列化されて返る
-        if (stored[0] !== current) {
-          const deduped = [current, ...stored.filter(l => l !== current)];
-          useLines = deduped.slice(0, 100);
-        } else {
-          useLines = stored.length ? stored : [current];
-        }
-        saveHistoryLines(useLines); // 保存は常にCSV文字列
-      } else {
-        useLines = fetchedLines.slice(0, 100).map(String);
-        saveHistoryLines(useLines);
-      }
+      fetchedLines = normalizeToLines(data); // サーバ履歴（新→旧 想定）
     } catch (err) {
-      console.error(err);
-      useLines = loadHistoryLines();
-      if (!useLines.length) {
-        if (mainLoading) mainLoading.outerHTML = `<td colspan="5" class="error">エラー：${escapeHtml(String(err))}</td>`;
-        if (historyLoading) historyLoading.outerHTML = `<td colspan="6">履歴はありません</td>`;
-        setupSearch([]); setupClearHistory();
-        return;
+      console.error("fetch error:", err);
+    }
+
+    // サーバが空ならローカルフォールバック
+    let useLines = fetchedLines.length ? fetchedLines.slice(0, 100).map(String) : loadHistoryLines();
+
+    if (!useLines.length) {
+      if (mainLoading) mainLoading.outerHTML = `<td colspan="5" class="error">サーバからデータを取得できませんでした。</td>`;
+      if (historyLoading) historyLoading.outerHTML = `<td colspan="6">履歴はありません</td>`;
+      setupSearch([]); setupClearHistory();
+      return;
+    }
+
+    // ★ 永続アンカー適用（正規化比較）
+    const anchorCanon = loadClearAnchorCanon();
+    if (anchorCanon) {
+      let cutIndex = -1;
+      for (let i = 0; i < useLines.length; i++) {
+        if (canonicalize(useLines[i]) === anchorCanon) {
+          cutIndex = i;
+          break;
+        }
+      }
+      if (cutIndex >= 0) {
+        useLines = useLines.slice(0, cutIndex + 1);
       }
     }
 
-    // ここからは「配列の配列（records）」で扱う
+    // オフライン用にも（現在のフィルタ後状態で）保存
+    saveHistoryLines(useLines);
+
+    // 表示用配列へ
     recordsGlobal = toRecords(useLines);
 
     // 最新
     if (mainLoading) mainLoading.parentElement?.remove();
     renderMain(recordsGlobal[0]);
 
-    // 履歴（最新も含めて表示）
+    // 履歴
     if (historyLoading) historyLoading.parentElement?.remove();
-    renderHistory(recordsGlobal, { skipFirst: false });
+    renderHistory(recordsGlobal);
 
-    // 検索/クリアのセットアップ
+    // UI
     setupSearch(recordsGlobal);
     setupClearHistory();
   }
 
-  // モーダルOK & 外側クリックで閉じる
+  // モーダル
   document.getElementById("modal-ok").addEventListener("click", hideModal);
   document.getElementById("modal-backdrop").addEventListener("click", (e) => {
     if (e.target.id === "modal-backdrop") hideModal();
@@ -511,5 +519,3 @@
 </script>
 </body>
 </html>
-
-
