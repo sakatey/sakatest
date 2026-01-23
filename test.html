@@ -142,11 +142,11 @@
         <thead>
           <tr>
             <!-- 列順：エリア名-座標, 2Dコード, 名前, 指示日, カメラ名 -->
+            <th>カメラ名</th>
             <th>エリア名-座標</th>
             <th>2Dコード</th>
             <th>名前</th>
             <th>指示日</th>
-            <th>カメラ名</th>
           </tr>
         </thead>
         <tbody id="main-tbody">
@@ -170,11 +170,11 @@
         <thead>
           <tr>
             <th>#</th>
+            <th>カメラ名</th>
             <th>エリア名-座標</th>
             <th>2Dコード</th>
             <th>名前</th>
             <th>指示日</th>
-            <th>カメラ名</th>
           </tr>
         </thead>
         <tbody id="history-tbody">
@@ -307,7 +307,7 @@
       tbody.appendChild(tr);
     } else {
       const tr = document.createElement("tr");
-      // 列順：エリア名-座標, 2Dコード, 名前, 指示日, カメラ名
+      // 列順：カメラ名エリア名-座標, 2Dコード, 名前, 指示日
       tr.innerHTML = `
         <td>${escapeHtml(latestRecord[0])}</td>
         <td>${escapeHtml(latestRecord[1])}</td>
@@ -511,3 +511,4 @@
 </script>
 </body>
 </html>
+
