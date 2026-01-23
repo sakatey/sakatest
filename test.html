@@ -307,7 +307,7 @@
       tbody.appendChild(tr);
     } else {
       const tr = document.createElement("tr");
-      // 列順：カメラ名エリア名-座標, 2Dコード, 名前, 指示日
+      // 列順：カメラ名,エリア名-座標, 2Dコード, 名前, 指示日
       tr.innerHTML = `
         <td>${escapeHtml(latestRecord[0])}</td>
         <td>${escapeHtml(latestRecord[1])}</td>
@@ -328,19 +328,19 @@
     const row1 = document.createElement("div");
     row1.className = "row";
     row1.innerHTML = `
-      <span class="pair"><span class="label">カメラ名</span><strong>${escapeHtml(latestRecord[4])}</strong></span>
-      <span class="pair"><span class="label">エリア名-座標</span><strong>${escapeHtml(latestRecord[0])}</strong></span>
+      <span class="pair"><span class="label">カメラ名</span><strong>${escapeHtml(latestRecord[0])}</strong></span>
+      <span class="pair"><span class="label">エリア名-座標</span><strong>${escapeHtml(latestRecord[1])}</strong></span>
     `;
     const row2 = document.createElement("div");
     row2.className = "row";
     row2.innerHTML = `
-      <span class="pair"><span class="label">名前</span><strong>${escapeHtml(latestRecord[2])}</strong></span>
-      <span class="pair"><span class="label">2Dコード</span><strong>${escapeHtml(latestRecord[1])}</strong></span>
+      <span class="pair"><span class="label">名前</span><strong>${escapeHtml(latestRecord[3])}</strong></span>
+      <span class="pair"><span class="label">2Dコード</span><strong>${escapeHtml(latestRecord[2])}</strong></span>
     `;
     const row3 = document.createElement("div");
     row3.className = "row";
     row3.innerHTML = `
-      <span class="pair"><span class="label">指示日</span><strong>${escapeHtml(latestRecord[3])}</strong></span>
+      <span class="pair"><span class="label">指示日</span><strong>${escapeHtml(latestRecord[4])}</strong></span>
     `;
     card.appendChild(row1); card.appendChild(row2); card.appendChild(row3);
   }
@@ -511,4 +511,5 @@
 </script>
 </body>
 </html>
+
 
