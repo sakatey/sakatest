@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Data Matrix 印刷（A4/A3・テキスト/CSV対応）</title>
 
+<!-- BWIP-JS (Data Matrix ECC200対応) -->
+https://cdn.jsdelivr.net/npm/bwip-js@4.8.0/dist/bwip-js.min.js</script>
+<!-- PapaParse (CSVパース) -->
+https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
+
 <style>
   :root {
     --paper-width: 210mm;   /* 既定 A4 縦 */
@@ -12,21 +17,30 @@
     --margin: 0mm;          /* 印刷余白ゼロ */
     --bg: #fff;
   }
+
+  /* 版面サイズと余白ゼロを明示 */
   @page {
     size: var(--paper-width) var(--paper-height);
     margin: var(--margin);
   }
+
   @media print {
     html, body { background: var(--bg); }
     #controls { display: none !important; }
+    /* 影や余計な枠がはみ出して余白ページを誘発しないよう全無効化 */
+    * { box-shadow: none !important; outline: none !important; }
+    /* 余分な隙間をゼロ化 */
+    #pages { gap: 0 !important; margin: 0 !important; }
     .page {
       width: var(--paper-width);
       height: var(--paper-height);
       margin: 0;
-      page-break-after: always;
+      /* ← 改ページはこれ“だけ”。旧プロパティは指定しない */
       break-after: page;
+      border: none !important;
     }
   }
+
   body {
     margin: 0;
     background: #f6f7f9;
@@ -58,7 +72,6 @@
     display: grid;
     gap: 12px;
     justify-items: center;
-    min-height: 40vh;
   }
   .page {
     width: var(--paper-width); height: var(--paper-height);
@@ -66,12 +79,13 @@
     display: grid; place-items: center; position: relative;
   }
   .canvas-wrap {
-    display: grid; place-items: center; 
+    display: grid; place-items: center;
+    /* ページ内の最大サイズ（上下左右10mm分は避ける） */
     max-width: calc(var(--paper-width) - 20mm);
     max-height: calc(var(--paper-height) - 20mm);
     padding: 0; margin: 0;
   }
-  canvas { background: #fff; }
+  canvas { background: #fff; max-width: 100%; height: auto; }
   .note {
     position: absolute; bottom: 8mm; left: 8mm; right: 8mm;
     font-size: 11px; color: #666; text-align: left;
@@ -125,7 +139,7 @@
     </label>
     <span id="csv-file-name" class="hint"></span>
     <span id="csv-summary" class="hint"></span>
-    <a id="samplecsv" download="sample.csv" href="#" class="hint">サンプルCSVをダウンロード</a>
+    #サンプルCSVをダウンロード</a>
   </div>
 
   <div class="row">
@@ -144,13 +158,9 @@
 
 <div id="pages"></div>
 
-<!-- 外部ライブラリは正しい <script src="..."> で読み込み -->
-<script src="https://unpkg.com/bwip-js/dist/bwip-js-min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  // ====== 既定値（AWSメッセージ基盤v1） ======
+(function(){
+  // ====== 既定値（AWSメッセージ基盤v1/v2のGET先に合わせて必要なら置換） ======
   const DEFAULT_FETCH_ENDPOINT = 'https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message'; // GET
   const CSV_MAX_ROWS = 500; // 必要に応じて変更可
 
@@ -178,27 +188,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const csvFile = $('csvfile');
   const csvFileName = $('csv-file-name');
   const csvSummary = $('csv-summary');
-  const sampleCsv = $('samplecsv');
+  const sampleLink = $('samplecsv');
 
-  // ====== ライブラリ存在チェック（読み込み失敗時の早期警告） ======
-  if (!window.bwipjs) {
-    statusEl.textContent = 'エラー: bwip-jsが読み込めていません。ネットワークやCDNを確認してください。';
-    return;
-  }
-  if (!window.Papa) {
-    // CSVは後から使うので致命的ではないが、先に案内
-    console.warn('PapaParseが読み込めていません。CSVモードは動作しません。');
-  }
-
-  // ====== サンプルCSVリンクを生成（日本語含むためJSでエンコード） ======
+  // ====== サンプルCSVリンク生成 ======
   (function setSampleCsv(){
     const content = [
       'data,scale,note',
       'ABC-123-XYZ,10,発注票 1',
       'http://example.com/track?id=42,12,リンク',
       '任意の日本語テキスト,8,日本語OK'
-    ].join('\\n');
-    sampleCsv.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(content);
+    ].join('\n');
+    // aタグがない場合に備え生成
+    let a = sampleLink;
+    if (!a) {
+      a = document.createElement('a');
+      a.id = 'samplecsv';
+      a.className = 'hint';
+      a.style.marginLeft = '8px';
+      a.textContent = 'サンプルCSVをダウンロード';
+      document.getElementById('csv-row').appendChild(a);
+    }
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(content);
+    a.download = 'sample.csv';
   })();
 
   // ====== ユーティリティ ======
@@ -234,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const wrap = document.createElement('div');
     wrap.className = 'canvas-wrap';
     const canvas = document.createElement('canvas');
-    // キャンバスは適度に大きめ。最終見え方は scale × セル数で決まる。
+    // 十分な解像度（過度に大きいと版面を押し広げるため1600px上限に）
     canvas.width = 1600; canvas.height = 1600;
     canvas.setAttribute('aria-label', 'Data Matrix');
 
@@ -342,9 +353,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ====== 初期化（URLクエリ対応 & デフォルトは text でUIを見せる） ======
+  // ====== 初期化（URLクエリ対応） ======
   (function initFromQuery(){
-    const mode = qs.get('mode') || 'text';             // ← 初回は text を既定に
+    const mode = qs.get('mode') || 'text';  // 初回は text を既定
     const size = qs.get('size') || 'A4';
     const orientation = qs.get('orientation') || 'portrait';
     const scale = clamp(parseInt(qs.get('scale')||'8',10), 2, 32);
@@ -380,7 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
     csvFileName.textContent = csvFile.files[0] ? `選択中: ${csvFile.files[0].name}` : '';
     csvSummary.textContent = '';
   });
-});
+})();
 </script>
 
 </body>
