@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Data Matrix 印刷（A4/A3）</title>
+<title>Data Matrix 印刷（A4/A3・テキスト/CSV）</title>
 
 <!-- BWIP-JS (Data Matrix ECC200対応) -->
-<!-- CDN: https://github.com/metafloor/bwip-js -->
 <script src="https://unpkg.com/bwip-js/dist/bwip-js-min.js"></script>
+<!-- PapaParse (CSVパース) -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
 <style>
   :root {
@@ -28,6 +29,7 @@
       height: var(--paper-height);
       margin: 0;
       page-break-after: always;
+      break-after: page;
     }
   }
   body {
@@ -39,27 +41,13 @@
   #controls {
     position: sticky; top: 0; z-index: 3;
     background: #fff; border-bottom: 1px solid #e5e5e5;
-    padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    padding: 12px 16px; display: grid; gap: 12px;
+    grid-template-columns: 1fr;
   }
-  #controls label { font-size: 14px; }
-  #controls input[type="text"] { width: 36rem; max-width: 95vw; }
-  .page {
-    width: var(--paper-width); height: var(--paper-height);
-    margin: 12px auto; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.08);
-    display: grid; place-items: center; position: relative;
-  }
-  .canvas-wrap {
-    display: grid; place-items: center; 
-    max-width: calc(var(--paper-width) - 20mm);
-    max-height: calc(var(--paper-height) - 20mm);
-  }
-  canvas { background: #fff; }
-  .note {
-    position: absolute; bottom: 8mm; left: 8mm; right: 8mm;
-    font-size: 11px; color: #666; text-align: left;
-    line-height: 1.5;
-  }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 14px; }
+  input[type="text"], textarea { width: 40rem; max-width: 95vw; }
+  textarea { height: 5.5rem; }
   select, input, button {
     font-size: 14px; padding: 6px 8px;
     border: 1px solid #ccc; border-radius: 6px;
@@ -68,6 +56,31 @@
   button.ghost { background: #fff; color: #2563eb; border-color: #2563eb; }
   .status { font-size: 13px; color: #555; }
   .warn { color: #a12828; font-weight: 600; }
+  .hint { font-size: 12px; color: #666; }
+
+  #pages {
+    margin: 12px auto;
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+  }
+  .page {
+    width: var(--paper-width); height: var(--paper-height);
+    background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.08);
+    display: grid; place-items: center; position: relative;
+  }
+  .canvas-wrap {
+    display: grid; place-items: center; 
+    max-width: calc(var(--paper-width) - 20mm);
+    max-height: calc(var(--paper-height) - 20mm);
+    padding: 0; margin: 0;
+  }
+  canvas { background: #fff; }
+  .note {
+    position: absolute; bottom: 8mm; left: 8mm; right: 8mm;
+    font-size: 11px; color: #666; text-align: left;
+    line-height: 1.5;
+  }
 </style>
 </head>
 <body>
@@ -77,7 +90,8 @@
     <label>モード:
       <select id="mode">
         <option value="fetch">fetch（最新をAPIから取得）</option>
-        <option value="direct">direct（下のテキストをそのまま）</option>
+        <option value="text">テキスト（入力欄の文字を使用）</option>
+        <option value="csv">CSV（複数を一括生成）</option>
       </select>
     </label>
 
@@ -98,10 +112,236 @@
     <label>scale（セルpx）:
       <input id="scale" type="number" min="2" max="32" value="8" />
     </label>
-
-    <button id="render" class="primary">再生成</button>
-    <button id="print" class="ghost">印刷</button>
   </div>
 
-  <div class="row" style="flex:1 1 100%;">
-    <label style="flex:1 1 auto;">テキスト（directモード時）:
+  <!-- テキストモードUI -->
+  <div class="row" id="text-row" style="display:none;">
+    <label style="flex:1 1 auto;">テキスト入力:
+      <textarea id="text-input" placeholder="ここにData Matrix化したい文字列を入力（複数行でも1つのコードに入ります）"></textarea>
+    </label>
+  </div>
+
+  <!-- CSVモードUI -->
+  <div class="row" id="csv-row" style="display:none;">
+    <label>CSVファイル:
+      <input id="csvfile" type="file" accept=".csv,text/csv" />
+    </label>
+    <a id="csv-sample" class="hint" download="sample.csv"
+       href='data:text/csv;charset=utf-8,data%2Cscale%2Cnote%0A"ABC-123-XYZ"%2C10%2C"発注票 1"%0A"http%3A%2F%2Fexample.com%2Ftrack%3Fid%3D42"%2C12%2C"QR%2FDMテスト 2"%0A"任意の日本語テキスト"%2C8%2C"日本語OK"'>
+      サンプルCSVをダウンロード
+    </a>
+  </div>
+
+  <div class="row">
+    <button id="generate" class="primary">生成 / 再生成</button>
+    <button id="print" class="ghost">印刷</button>
+    <button id="clear" class="ghost">ページをクリア</button>
+    <span class="status" id="status"></span>
+    <span class="status warn" id="cors"></span>
+  </div>
+
+  <div class="hint">
+    ※ CSVの列: <code>data</code>（必須）, <code>scale</code>（任意 2-32）, <code>note</code>（任意）。<br/>
+    ※ 用紙サイズと向きは全ページ共通（上のセレクタで指定）。<br/>
+    ※ 生成後に「印刷」ボタンで全ページをまとめて印刷。
+  </div>
+</div>
+
+<div id="pages"></div>
+
+<script>
+(function(){
+  // ====== 既定値（AWSメッセージ基盤v1） ======
+  const DEFAULT_FETCH_ENDPOINT = 'https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message'; // GET
+  const CSV_MAX_ROWS = 500; // 負荷対策。必要なら増やせます。
+
+  const DEFAULT_OPTS = {
+    bcid: 'datamatrix',  // Data Matrix ECC200
+    scale: 8,            // セルサイズ(px)
+    includetext: false,
+    textxalign: 'center',
+    textyalign: 'below',
+  };
+
+  // ====== 要素参照 ======
+  const $ = (id)=>document.getElementById(id);
+  const modeEl = $('mode');
+  const paperEl = $('paper');
+  const orientEl = $('orient');
+  const scaleEl = $('scale');
+  const pagesEl = $('pages');
+  const statusEl = $('status');
+  const corsEl = $('cors');
+  const textRow = $('text-row');
+  const textInput = $('text-input');
+  const csvRow = $('csv-row');
+  const csvFile = $('csvfile');
+
+  // ====== ユーティリティ ======
+  const qs = new URLSearchParams(location.search);
+  const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+
+  // URLクエリ初期化
+  (function initFromQuery(){
+    const mode = qs.get('mode') || 'fetch';
+    const size = qs.get('size') || 'A4';
+    const orientation = qs.get('orientation') || 'portrait';
+    const scale = clamp(parseInt(qs.get('scale')||'8',10), 2, 32);
+    const data = qs.get('data') || '';
+
+    modeEl.value = mode;
+    paperEl.value = size;
+    orientEl.value = orientation;
+    scaleEl.value = scale;
+    if (data) {
+      textInput.value = data;
+      modeEl.value = 'text';
+    }
+    applyPaper();
+    updateModeUI();
+  })();
+
+  function applyPaper(){
+    const size = paperEl.value;
+    const orientation = orientEl.value;
+    let wmm, hmm; // mm
+    if (size === 'A3') { wmm = 297; hmm = 420; } else { wmm = 210; hmm = 297; } // A4
+    const width = orientation === 'landscape' ? hmm : wmm;
+    const height = orientation === 'landscape' ? wmm : hmm;
+    document.documentElement.style.setProperty('--paper-width', width+'mm');
+    document.documentElement.style.setProperty('--paper-height', height+'mm');
+  }
+
+  function updateModeUI(){
+    const mode = modeEl.value;
+    textRow.style.display = (mode === 'text') ? '' : 'none';
+    csvRow.style.display = (mode === 'csv') ? '' : 'none';
+    corsEl.textContent = '';
+    statusEl.textContent = '';
+  }
+
+  function clearPages(){
+    pagesEl.innerHTML = '';
+  }
+
+  function createPage({ text, scale, note }) {
+    const page = document.createElement('div');
+    page.className = 'page';
+    const wrap = document.createElement('div');
+    wrap.className = 'canvas-wrap';
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200; canvas.height = 1200; // サイズはbwip-js側のscale×セル数で実質決定
+    canvas.setAttribute('aria-label', 'Data Matrix');
+
+    wrap.appendChild(canvas);
+    page.appendChild(wrap);
+
+    const noteEl = document.createElement('div');
+    noteEl.className = 'note';
+    noteEl.textContent = note || '';
+    page.appendChild(noteEl);
+
+    pagesEl.appendChild(page);
+
+    const opts = Object.assign({}, DEFAULT_OPTS, { scale, text });
+    bwipjs.toCanvas(canvas, opts);
+  }
+
+  async function fetchLatest() {
+    const endpoint = DEFAULT_FETCH_ENDPOINT;
+    const res = await fetch(endpoint, { method: 'GET', mode: 'cors' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const candidate = json.latest ?? json.message ?? json?.items?.[0]?.message ?? JSON.stringify(json);
+    return String(candidate);
+  }
+
+  function parseCsvFile(file) {
+    return new Promise((resolve, reject) => {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        encoding: 'UTF-8',
+        complete: (results) => resolve(results.data),
+        error: (err) => reject(err),
+      });
+    });
+  }
+
+  async function generate() {
+    statusEl.textContent = '生成中…';
+    corsEl.textContent = '';
+    applyPaper();
+    clearPages();
+
+    const mode = modeEl.value;
+    const defaultScale = clamp(parseInt(scaleEl.value || '8',10), 2, 32);
+
+    try {
+      if (mode === 'fetch') {
+        const text = await fetchLatest();
+        createPage({ text, scale: defaultScale, note: `データ長: ${text.length} / fetch` });
+        statusEl.textContent = '1ページ生成完了';
+      } else if (mode === 'text') {
+        const text = (textInput.value || '').trim();
+        if (!text) {
+          statusEl.textContent = 'テキストが空です。';
+          return;
+        }
+        createPage({ text, scale: defaultScale, note: `データ長: ${text.length} / text` });
+        statusEl.textContent = '1ページ生成完了';
+      } else if (mode === 'csv') {
+        const file = csvFile.files && csvFile.files[0];
+        if (!file) {
+          statusEl.textContent = 'CSVファイルが選択されていません。';
+          return;
+        }
+        const rows = await parseCsvFile(file);
+        const usable = rows
+          .map((r, idx) => ({
+            text: (r.data ?? '').toString(),
+            scale: clamp(parseInt(r.scale||defaultScale,10), 2, 32),
+            note: (r.note ?? '').toString(),
+            idx
+          }))
+          .filter(r => r.text.trim() !== '');
+
+        if (usable.length === 0) {
+          statusEl.textContent = '有効な行（data列あり）が見つかりません。';
+          return;
+        }
+        if (usable.length > CSV_MAX_ROWS) {
+          statusEl.textContent = `行数が多すぎます（${usable.length}件）。最大 ${CSV_MAX_ROWS} 件までにしてください。`;
+          return;
+        }
+
+        // 逐次生成（ブラウザ負荷を抑える）
+        for (let i = 0; i < usable.length; i++) {
+          const r = usable[i];
+          createPage({
+            text: r.text,
+            scale: r.scale,
+            note: r.note || `#${i+1} / データ長: ${r.text.length}`
+          });
+          if ((i+1) % 20 === 0) await new Promise(res => setTimeout(res, 0)); // UIの固まり抑制
+        }
+        statusEl.textContent = `${usable.length} ページ生成完了`;
+      }
+    } catch (e) {
+      console.error(e);
+      statusEl.textContent = '生成エラー: ' + e.message;
+      if (mode === 'fetch') {
+       dow.print());
+  $('clear').addEventListener('click', clearPages);
+  [modeEl, paperEl, orientEl].forEach(el => el.addEventListener('change', ()=>{
+    applyPaper();
+    updateModeUI();
+  }));
+
+  // 初期表示：fetchモードで1ページ生成（必要に応じて）
+  // generate();
+})();
+</script>
+
+</body>
+</html>
