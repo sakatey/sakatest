@@ -6,9 +6,9 @@
 <title>Data Matrix 印刷（A4/A3・テキスト/CSV対応）</title>
 
 <!-- BWIP-JS (Data Matrix ECC200対応) -->
-https://cdn.jsdelivr.net/npm/bwip-js@4.8.0/dist/bwip-js.min.js</script>
+<script src="https://cdn.jsdelivr.net/npm/bwip-js@4.8.0/dist/bwip-js.min.js"></script>
 <!-- PapaParse (CSVパース) -->
-https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
 <style>
   :root {
@@ -27,17 +27,32 @@ https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
   @media print {
     html, body { background: var(--bg); }
     #controls { display: none !important; }
-    /* 影や余計な枠がはみ出して余白ページを誘発しないよう全無効化 */
-    * { box-shadow: none !important; outline: none !important; }
-    /* 余分な隙間をゼロ化 */
-    #pages { gap: 0 !important; margin: 0 !important; }
+
+    /* 改ページは .pageごとに。末尾は break を外す（空白ページ防止） */
+    .page { break-after: page; }
+    .page:last-child { break-after: auto; }
+
+    /* ページ高をわずかに詰めて、丸め誤差でのオーバーを防ぐ */
     .page {
       width: var(--paper-width);
-      height: var(--paper-height);
+      height: calc(var(--paper-height) - 0.2mm);
       margin: 0;
-      /* ← 改ページはこれ“だけ”。旧プロパティは指定しない */
-      break-after: page;
       border: none !important;
+      box-shadow: none !important;
+    }
+
+    /* 全体の装飾・隙間をゼロ化（はみ出し＝空白ページの原因を除去） */
+    * { box-sizing: border-box; box-shadow: none !important; outline: none !important; }
+    #pages { gap: 0 !important; margin: 0 !important; padding: 0 !important; }
+
+    /* 注記は印刷時は消す（必要なら display:block に） */
+    .note { display: none !important; }
+
+    /* Canvasラッパの最大寸法をさらに少しだけ縮める（安全側） */
+    .canvas-wrap {
+      max-width: calc(var(--paper-width) - 20mm);
+      max-height: calc(var(--paper-height) - 22mm); /* ← 通常より2mm小さく */
+      margin: 0; padding: 0;
     }
   }
 
@@ -80,7 +95,7 @@ https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
   }
   .canvas-wrap {
     display: grid; place-items: center;
-    /* ページ内の最大サイズ（上下左右10mm分は避ける） */
+    /* 通常表示時の最大サイズ（上下左右10mm分は避ける） */
     max-width: calc(var(--paper-width) - 20mm);
     max-height: calc(var(--paper-height) - 20mm);
     padding: 0; margin: 0;
@@ -89,7 +104,7 @@ https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
   .note {
     position: absolute; bottom: 8mm; left: 8mm; right: 8mm;
     font-size: 11px; color: #666; text-align: left;
-    line-height: 1.5;
+    line-height: 1.4;
   }
 </style>
 </head>
@@ -139,7 +154,7 @@ https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
     </label>
     <span id="csv-file-name" class="hint"></span>
     <span id="csv-summary" class="hint"></span>
-    #サンプルCSVをダウンロード</a>
+    <a id="samplecsv" class="hint" href="#" download="sample.csv">サンプルCSVをダウンロード</a>
   </div>
 
   <div class="row">
@@ -160,7 +175,7 @@ https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
 
 <script>
 (function(){
-  // ====== 既定値（AWSメッセージ基盤v1/v2のGET先に合わせて必要なら置換） ======
+  // ====== 既定値（必要に応じてGET先を置換） ======
   const DEFAULT_FETCH_ENDPOINT = 'https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message'; // GET
   const CSV_MAX_ROWS = 500; // 必要に応じて変更可
 
@@ -198,18 +213,7 @@ https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
       'http://example.com/track?id=42,12,リンク',
       '任意の日本語テキスト,8,日本語OK'
     ].join('\n');
-    // aタグがない場合に備え生成
-    let a = sampleLink;
-    if (!a) {
-      a = document.createElement('a');
-      a.id = 'samplecsv';
-      a.className = 'hint';
-      a.style.marginLeft = '8px';
-      a.textContent = 'サンプルCSVをダウンロード';
-      document.getElementById('csv-row').appendChild(a);
-    }
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(content);
-    a.download = 'sample.csv';
+    sampleLink.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(content);
   })();
 
   // ====== ユーティリティ ======
@@ -242,10 +246,12 @@ https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js</script>
   function createPage({ text, scale, note }) {
     const page = document.createElement('div');
     page.className = 'page';
+
     const wrap = document.createElement('div');
     wrap.className = 'canvas-wrap';
+
     const canvas = document.createElement('canvas');
-    // 十分な解像度（過度に大きいと版面を押し広げるため1600px上限に）
+    // 安全側の十分な解像度（過度に大きいと版面を押し広げるため1600px上限に）
     canvas.width = 1600; canvas.height = 1600;
     canvas.setAttribute('aria-label', 'Data Matrix');
 
