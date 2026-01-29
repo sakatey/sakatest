@@ -35,7 +35,7 @@
     /* ページ高をわずかに詰めて、丸め誤差でのオーバーを防ぐ */
     .page {
       width: var(--paper-width);
-      height: calc(var(--paper-height) - 0.2mm);
+      height: calc(var(--paper-height) - 0.5mm);
       margin: 0;
       border: none !important;
       box-shadow: none !important;
@@ -46,7 +46,7 @@
     #pages { gap: 0 !important; margin: 0 !important; padding: 0 !important; }
 
     /* 注記は印刷時は消す（必要なら display:block に） */
-    .note { display: none !important; }
+    .note { display: block !important; }
 
     /* Canvasラッパの最大寸法をさらに少しだけ縮める（安全側） */
     .canvas-wrap {
@@ -402,3 +402,4 @@
 
 </body>
 </html>
+
