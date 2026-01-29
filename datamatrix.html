@@ -5,11 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Data Matrix 印刷（A4/A3・テキスト/CSV対応）</title>
 
-<!-- BWIP-JS (Data Matrix ECC200) -->
-<script src="https://unpkg.com/bwip-js/dist/bwip-js-min.js"></script>
-<!-- PapaParse (CSVパース) -->
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
 <style>
   :root {
     --paper-width: 210mm;   /* 既定 A4 縦 */
@@ -63,6 +58,7 @@
     display: grid;
     gap: 12px;
     justify-items: center;
+    min-height: 40vh;
   }
   .page {
     width: var(--paper-width); height: var(--paper-height);
@@ -129,7 +125,7 @@
     </label>
     <span id="csv-file-name" class="hint"></span>
     <span id="csv-summary" class="hint"></span>
-    <a id="samplecsv" class="ghost" href="#" download="sample.csv" style="margin-left:auto;">サンプルCSVをダウンロード</a>
+    <a id="samplecsv" download="sample.csv" href="#" class="hint">サンプルCSVをダウンロード</a>
   </div>
 
   <div class="row">
@@ -148,8 +144,12 @@
 
 <div id="pages"></div>
 
+<!-- 外部ライブラリは正しい <script src="..."> で読み込み -->
+<script src="https://unpkg.com/bwip-js/dist/bwip-js-min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
 <script>
-(function(){
+document.addEventListener('DOMContentLoaded', () => {
   // ====== 既定値（AWSメッセージ基盤v1） ======
   const DEFAULT_FETCH_ENDPOINT = 'https://5kptpm020d.execute-api.ap-northeast-1.amazonaws.com/message'; // GET
   const CSV_MAX_ROWS = 500; // 必要に応じて変更可
@@ -180,6 +180,16 @@
   const csvSummary = $('csv-summary');
   const sampleCsv = $('samplecsv');
 
+  // ====== ライブラリ存在チェック（読み込み失敗時の早期警告） ======
+  if (!window.bwipjs) {
+    statusEl.textContent = 'エラー: bwip-jsが読み込めていません。ネットワークやCDNを確認してください。';
+    return;
+  }
+  if (!window.Papa) {
+    // CSVは後から使うので致命的ではないが、先に案内
+    console.warn('PapaParseが読み込めていません。CSVモードは動作しません。');
+  }
+
   // ====== サンプルCSVリンクを生成（日本語含むためJSでエンコード） ======
   (function setSampleCsv(){
     const content = [
@@ -194,30 +204,6 @@
   // ====== ユーティリティ ======
   const qs = new URLSearchParams(location.search);
   const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
-
-  // URLクエリ初期化
-  (function initFromQuery(){
-    const mode = qs.get('mode') || 'fetch';
-    const size = qs.get('size') || 'A4';
-    const orientation = qs.get('orientation') || 'portrait';
-    const scale = clamp(parseInt(qs.get('scale')||'8',10), 2, 32);
-    const data = qs.get('data') || '';
-
-    modeEl.value = mode;
-    paperEl.value = size;
-    orientEl.value = orientation;
-    scaleEl.value = scale;
-
-    applyPaper();
-    updateModeUI();
-
-    if (mode === 'text' || data) {
-      textInput.value = data;
-      textCount.textContent = (textInput.value||'').length;
-      modeEl.value = 'text';
-      updateModeUI();
-    }
-  })();
 
   function applyPaper(){
     const size = paperEl.value;
@@ -248,7 +234,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'canvas-wrap';
     const canvas = document.createElement('canvas');
-    // キャンバスは適度に大きめ。実寸は scale × セル数で決定される。
+    // キャンバスは適度に大きめ。最終見え方は scale × セル数で決まる。
     canvas.width = 1600; canvas.height = 1600;
     canvas.setAttribute('aria-label', 'Data Matrix');
 
@@ -326,7 +312,10 @@
           .filter(r => r.text.trim() !== '');
 
         if (usable.length === 0) {
-         ) {
+          statusEl.textContent = '有効な行（data列あり）が見つかりません。';
+          return;
+        }
+        if (usable.length > CSV_MAX_ROWS) {
           statusEl.textContent = `行数が多すぎます（${usable.length}件）。最大 ${CSV_MAX_ROWS} 件までにしてください。`;
           return;
         }
@@ -353,6 +342,26 @@
     }
   }
 
+  // ====== 初期化（URLクエリ対応 & デフォルトは text でUIを見せる） ======
+  (function initFromQuery(){
+    const mode = qs.get('mode') || 'text';             // ← 初回は text を既定に
+    const size = qs.get('size') || 'A4';
+    const orientation = qs.get('orientation') || 'portrait';
+    const scale = clamp(parseInt(qs.get('scale')||'8',10), 2, 32);
+    const data = qs.get('data') || '';
+
+    modeEl.value = mode;
+    paperEl.value = size;
+    orientEl.value = orientation;
+    scaleEl.value = scale;
+
+    if (data) textInput.value = data;
+    textCount.textContent = (textInput.value||'').length;
+
+    applyPaper();
+    updateModeUI();
+  })();
+
   // ====== イベント ======
   document.getElementById('generate').addEventListener('click', generate);
   document.getElementById('print').addEventListener('click', ()=>window.print());
@@ -371,10 +380,7 @@
     csvFileName.textContent = csvFile.files[0] ? `選択中: ${csvFile.files[0].name}` : '';
     csvSummary.textContent = '';
   });
-
-  // 初期表示：必要なら自動生成を有効化
-  // generate();
-})();
+});
 </script>
 
 </body>
