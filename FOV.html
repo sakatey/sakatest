@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>撮影範囲計算（距離×画角）</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #141b2d;
+      --text: #e6e9f0;
+      --muted: #a8b3cf;
+      --accent: #4da3ff;
+      --warn: #ffcd4d;
+      --ok: #62d394;
+    }
+    body {
+      margin: 0; padding: 24px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      color: var(--text); background: radial-gradient(1200px 600px at 10% 0%, #17213a 0%, var(--bg) 60%);
+    }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .wrap { max-width: 920px; margin: 0 auto; }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 20px;
+      box-shadow: 0 20px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
+      backdrop-filter: blur(6px);
+    }
+    .grid {
+      display: grid; gap: 14px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+    .col-6 { grid-column: span 6; }
+    .col-4 { grid-column: span 4; }
+    .col-12 { grid-column: span 12; }
+    @media (max-width: 720px) {
+      .col-6, .col-4, .col-12 { grid-column: span 12; }
+    }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+    input[type="number"] {
+      width: 100%; box-sizing: border-box; background: #0f1424; color: var(--text);
+      border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 12px 12px;
+      outline: none; transition: border .15s, box-shadow .15s;
+      font-size: 16px;
+    }
+    input[type="number"]:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 4px rgba(77,163,255,.15);
+    }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .suffix { color: var(--muted); font-size: 12px; }
+    .help { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .output {
+      display: grid; gap: 12px; grid-template-columns: repeat(12, 1fr);
+      margin-top: 4px;
+    }
+    .kpi {
+      grid-column: span 6;
+      background: #0f1628; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 14px;
+    }
+    .kpi h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .kpi .val { font-size: 26px; font-weight: 700; letter-spacing: .2px; }
+    .kpi small { color: var(--muted); font-size: 12px; }
+    .note { font-size: 12px; color: var(--muted); }
+    .warn { color: var(--warn); }
+    .ok { color: var(--ok); }
+    .divider { height: 1px; background: rgba(255,255,255,.08); margin: 16px 0; }
+    .btnrow { display:flex; gap:8px; flex-wrap: wrap; }
+    button {
+      background: #1a2542; color: var(--text); border: 1px solid rgba(255,255,255,.12);
+      border-radius: 10px; padding: 10px 14px; cursor: pointer; font-weight: 600;
+    }
+    button:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(77,163,255,.15); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>撮影範囲計算（距離 × 水平/垂直画角）</h1>
+      <div class="grid">
+        <div class="col-4">
+          <label for="distance">距離 D <span class="suffix">(m)</span></label>
+          <input id="distance" type="number" inputmode="decimal" step="0.01" min="0" placeholder="例: 8.5" value="8.5">
+          <div class="help">カメラから被写体までの距離（メートル）</div>
+        </div>
+        <div class="col-4">
+          <label for="hfov">水平画角 HFOV <span class="suffix">(度)</span></label>
+          <input id="hfov" type="number" inputmode="numeric" step="0.1" min="1" max="179" placeholder="例: 60">
+          <div class="help">1〜179°の範囲で入力</div>
+        </div>
+        <div class="col-4">
+          <label for="vfov">垂直画角 VFOV <span class="suffix">(度)</span></label>
+          <input id="vfov" type="number" inputmode="numeric" step="0.1" min="1" max="179" placeholder="例: 40">
+          <div class="help">1〜179°の範囲で入力</div>
+        </div>
+
+        <div class="col-6">
+          <label for="resw">カメラ解像度（幅）<span class="suffix">[px]（任意）</span></label>
+          <input id="resw" type="number" inputmode="numeric" step="1" min="1" placeholder="例: 1920">
+          <div class="help">入力すると px/mm も併記します（任意）</div>
+        </div>
+        <div class="col-6">
+          <label for="resh">カメラ解像度（高さ）<span class="suffix">[px]（任意）</span></label>
+          <input id="resh" type="number" inputmode="numeric" step="1" min="1" placeholder="例: 1080">
+        </div>
+
+        <div class="col-12">
+          <div class="btnrow">
+            <button id="btnNow">今すぐ計算</button>
+            <button id="btnShare">URLに値を保存（共有用）</button>
+            <span class="note">※ 入力は変更と同時に自動計算されます。</span>
+          </div>
+        </div>
+
+        <div class="col-12"><div class="divider"></div></div>
+
+        <div class="col-12">
+          <div class="output">
+            <div class="kpi">
+              <h3>撮影範囲の幅</h3>
+              <div class="val"><span id="outWidth">–</span> <small>m</small></div>
+              <div class="help mono" id="outWidthDetail">–</div>
+            </div>
+            <div class="kpi">
+              <h3>撮影範囲の高さ</h3>
+              <div class="val"><span id="outHeight">–</span> <small>m</small></div>
+              <div class="help mono" id="outHeightDetail">–</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12">
+          <div class="note" id="note"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="help" style="margin-top:16px;">
+      計算式：<span class="mono">Width = 2 * D * tan(HFOV/2)</span>、<span class="mono">Height = 2 * D * tan(VFOV/2)</span>（角度は度→ラジアンに変換）
+    </p>
+  </div>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+    const round = (v, d=3) => Number.isFinite(v) ? (Math.round(v * 10**d) / 10**d) : NaN;
+    const toRad = (deg) => deg * Math.PI / 180;
+
+    function calc() {
+      const D = parseFloat(el('distance').value);
+      const HFOV = parseFloat(el('hfov').value);
+      const VFOV = parseFloat(el('vfov').value);
+      const RW = parseInt(el('resw').value, 10);
+      const RH = parseInt(el('resh').value, 10);
+
+      let note = [];
+
+      if (!(D > 0)) note.push('距離 D は正の数で入力してください。');
+      if (!(HFOV > 0 && HFOV < 180)) note.push('水平画角 HFOV は 1〜179° の範囲で入力してください。');
+      if (!(VFOV > 0 && VFOV < 180)) note.push('垂直画角 VFOV は 1〜179° の範囲で入力してください。');
+
+      if (note.length) {
+        el('outWidth').textContent = '–';
+        el('outHeight').textContent = '–';
+        el('outWidthDetail').textContent = '–';
+        el('outHeightDetail').textContent = '–';
+        el('note').innerHTML = '<span class="warn">⚠ ' + note.join(' ') + '</span>';
+        return;
+      }
+
+      // 撮影範囲（m）
+      const width  = 2 * D * Math.tan(toRad(HFOV / 2));
+      const height = 2 * D * Math.tan(toRad(VFOV / 2));
+
+      el('outWidth').textContent  = round(width, 3);
+      el('outHeight').textContent = round(height, 3);
+
+      // 詳細（mm表示と任意で px/mm）
+      const wmm = width * 1000;
+      const hmm = height * 1000;
+      let wDetail = `= ${round(wmm,1)} mm`;
+      let hDetail = `= ${round(hmm,1)} mm`;
+
+      if (Number.isInteger(RW) && RW > 0) {
+        const pxPerMmW = RW / wmm;
+        wDetail += ` ｜ ${round(pxPerMmW, 4)} px/mm（横）`;
+      }
+      if (Number.isInteger(RH) && RH > 0) {
+        const pxPerMmH = RH / hmm;
+        hDetail += ` ｜ ${round(pxPerMmH, 4)} px/mm（縦）`;
+      }
+
+      el('outWidthDetail').textContent  = wDetail;
+      el('outHeightDetail').textContent = hDetail;
+
+      el('note').innerHTML = '<span class="ok">✔ 計算完了</span>';
+    }
+
+    // 入力変更で自動計算
+    ['distance','hfov','vfov','resw','resh'].forEach(id => {
+      el(id).addEventListener('input', calc);
+    });
+    el('btnNow').addEventListener('click', calc);
+
+    // URL クエリに保存／復元（共有用）
+    function updateQueryFromInputs() {
+      const params = new URLSearchParams();
+      const v = id => el(id).value;
+      if (v('distance')) params.set('D', v('distance'));
+      if (v('hfov')) params.set('HFOV', v('hfov'));
+      if (v('vfov')) params.set('VFOV', v('vfov'));
+      if (v('resw')) params.set('RW', v('resw'));
+      if (v('resh')) params.set('RH', v('resh'));
+      const url = `${location.pathname}?${params.toString()}`;
+      history.replaceState(null, '', url);
+    }
+    function loadInputsFromQuery() {
+      const q = new URLSearchParams(location.search);
+      if (q.has('D'))    el('distance').value = q.get('D');
+      if (q.has('HFOV')) el('hfov').value    = q.get('HFOV');
+      if (q.has('VFOV')) el('vfov').value    = q.get('VFOV');
+      if (q.has('RW'))   el('resw').value    = q.get('RW');
+      if (q.has('RH'))   el('resh').value    = q.get('RH');
+    }
+    el('btnShare').addEventListener('click', () => {
+      updateQueryFromInputs();
+      navigator.clipboard?.writeText(location.href).catch(()=>{});
+      el('note').innerHTML = '<span class="ok">✔ 現在の入力をURLに反映しました（必要ならコピーして共有）</span>';
+    });
+
+    // 初期化
+    loadInputsFromQuery();
+    calc();
+  </script>
+</body>
+</html>
